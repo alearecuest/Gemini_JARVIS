@@ -39,7 +39,7 @@ try:
     time.sleep(2)
     client = genai.Client()
     fecha_hora = datetime.datetime.now().strftime("%A, %d de %B de %Y - %H:%M")
-    usuario = os.environ.get("USER", "Señor")
+    usuario = "Alejandro"
     
     try:
         req = urllib.request.Request("https://wttr.in/Montevideo?format=%C+%t", headers={'User-Agent': 'Mozilla/5.0'})
@@ -53,7 +53,7 @@ try:
     prompt = f"""
     Actúa como JARVIS. El usuario {usuario} acaba de iniciar sesión.
     Datos: {fecha_hora}. Clima: {clima}. CPU: {cpu}%. RAM: {ram}%.
-    Genera un saludo de máximo 4 líneas. Menciona los datos. Tono tecnológico, de IA avanzada.
+    Genera un saludo de máximo 4 líneas. Menciona los datos. Tono tecnológico, de IA avanzada. Dirígete a él exclusivamente como "Alejandro", nunca uses nombres de usuario de sistema.
     """
 
     modelos = ['gemini-3.8-flash', 'gemini-1.5-flash']
