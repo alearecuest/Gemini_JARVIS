@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.mp3
+credentials.json
+token.json
+agenda_jarvis.json
