@@ -1,7 +1,9 @@
 import os
+import sys
 import time
 import asyncio
 import tempfile
+import subprocess
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import pygame
@@ -18,26 +20,27 @@ class VoiceEngine:
     def __init__(self, voz="es-UY-MateoNeural", wake_word="jarvis"):
         self.voz = voz
         self.wake_word = wake_word.lower()
-        self.audio_disponible = False
+        self.audio_nativo = False
+        self.es_wsl = "microsoft" in os.uname().release.lower() if hasattr(os, "uname") else False
         self.mic_disponible = False
 
-        # Inicializar salida de audio de forma segura (soporta WSL sin placa de audio)
+        # Intentar inicializar audio nativo silenciando advertencias ALSA en Linux
         try:
-            # Silenciar advertencias ALSA de C en entornos WSL sin placa de sonido
             devnull = os.open(os.devnull, os.O_WRONLY)
             old_stderr = os.dup(2)
             os.dup2(devnull, 2)
             try:
                 pygame.mixer.init()
-                self.audio_disponible = True
+                self.audio_nativo = True
             finally:
                 os.dup2(old_stderr, 2)
                 os.close(devnull)
                 os.close(old_stderr)
-        except Exception as e:
-            print(f" > [VoiceEngine]: Audio nativo no detectado en este entorno ({e}). Usando salida visual/texto.")
+        except Exception:
+            self.audio_nativo = False
+            if self.es_wsl:
+                print(" > [VoiceEngine]: Entorno WSL detectado. Activando puente de audio hacia Windows.")
 
-        # Inicializar reconocedor de micrófono si está instalado
         if sr is not None:
             try:
                 self.recognizer = sr.Recognizer()
@@ -51,6 +54,30 @@ class VoiceEngine:
         comunicador = edge_tts.Communicate(texto, self.voz, rate="+8%")
         await comunicador.save(archivo_salida)
 
+    def _reproducir_en_wsl(self, texto: str):
+        """Genera el MP3 y lo reproduce a través del subsistema de audio de Windows."""
+        ruta_wsl = "/mnt/c/Users/Public/jarvis_tts_temp.mp3"
+        ruta_win = r"C:\Users\Public\jarvis_tts_temp.mp3"
+        
+        asyncio.run(self._generar_audio(texto, ruta_wsl))
+        
+        ps_script = (
+            f"Add-Type -AssemblyName presentationCore; "
+            f"$player = New-Object system.windows.media.mediaplayer; "
+            f"$player.open('{ruta_win}'); "
+            f"$player.Play(); "
+            f"Start-Sleep -Milliseconds 350; "
+            f"while ($player.NaturalDuration.HasTimeSpan -and $player.Position -lt $player.NaturalDuration.TimeSpan) {{ Start-Sleep -Milliseconds 100 }}; "
+            f"$player.Close()"
+        )
+        subprocess.run(["powershell.exe", "-NoProfile", "-Command", ps_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        if os.path.exists(ruta_wsl):
+            try:
+                os.remove(ruta_wsl)
+            except Exception:
+                pass
+
     def hablar(self, texto: str):
         """Sintetiza voz neuronal y actualiza el StateBus a SPEAKING mientras reproduce."""
         if not texto:
@@ -58,31 +85,27 @@ class VoiceEngine:
         print(f"\n\033[1;36m[J.A.R.V.I.S.]: {texto}\033[0m\n")
         StateBus.actualizar("SPEAKING", "Hablando...", ultima_respuesta=texto)
 
-        if not self.audio_disponible:
-            # Simula el tiempo de habla en el HUD aunque no haya parlantes en WSL
-            time.sleep(min(4.0, max(1.5, len(texto) * 0.04)))
-            StateBus.actualizar("IDLE", "En guardia")
-            return
-
         try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
-                ruta_mp3 = tmp.name
-
-            asyncio.run(self._generar_audio(texto, ruta_mp3))
-
-            pygame.mixer.music.load(ruta_mp3)
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy():
-                pygame.time.Clock().tick(15)
-            pygame.mixer.music.unload()
-            os.remove(ruta_mp3)
+            if self.audio_nativo:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+                    ruta_mp3 = tmp.name
+                asyncio.run(self._generar_audio(texto, ruta_mp3))
+                pygame.mixer.music.load(ruta_mp3)
+                pygame.mixer.music.play()
+                while pygame.mixer.music.get_busy():
+                    pygame.time.Clock().tick(15)
+                pygame.mixer.music.unload()
+                os.remove(ruta_mp3)
+            elif self.es_wsl:
+                self._reproducir_en_wsl(texto)
+            else:
+                time.sleep(min(4.0, max(1.5, len(texto) * 0.04)))
         except Exception as e:
             print(f"   [!] Error reproduciendo TTS: {e}")
         finally:
             StateBus.actualizar("IDLE", "En guardia")
 
     def iniciar_bucle_voz(self, agent):
-        """Intenta usar micrófono; si no hay (ej. WSL sin passthrough), pasa a modo consola."""
         if not self.mic_disponible:
             self.iniciar_bucle_texto(agent)
             return
@@ -92,9 +115,8 @@ class VoiceEngine:
             with mic as source:
                 print("\n[Calibrando micrófono (1 seg)...]")
                 self.recognizer.adjust_for_ambient_noise(source, duration=1)
-        except Exception as e:
-            print(f"\033[1;33m > [Aviso]: Micrófono físico no accesible desde esta terminal ({e}).\033[0m")
-            print("\033[1;33m > Activando Modo Consola Interactivo (el HUD 3D seguirá sincronizado en vivo).\033[0m")
+        except Exception:
+            print("\033[1;33m > [Aviso]: Micrófono directo en WSL no detectado. Usando teclado con VOZ ACTIVA.\033[0m")
             self.iniciar_bucle_texto(agent)
             return
 
@@ -151,8 +173,7 @@ class VoiceEngine:
                 time.sleep(1)
 
     def iniciar_bucle_texto(self, agent):
-        """Modo interactivo por teclado con sincronización completa del HUD 3D."""
-        self.hablar("Sistemas versión dos en línea, Alejandro. Modo interactivo listo.")
+        self.hablar("Sistemas versión dos en línea, Alejandro. Audio puente activado.")
         while True:
             try:
                 StateBus.actualizar("IDLE", "Esperando comando...")
