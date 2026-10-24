@@ -5,6 +5,7 @@ import urllib.request
 import psutil
 import time
 import threading
+import subprocess
 import random
 from google import genai
 
@@ -87,3 +88,10 @@ finally:
     typewriter_print(mensaje)
     
     print("\n\033[36m" + "="*60 + "\033[0m\n")
+
+try:
+    texto_limpio = mensaje.replace("'", "")
+    ps_command = f"Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{texto_limpio}')"
+    subprocess.run(["powershell.exe", "-Command", ps_command], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except Exception as e:
+    print(f"\033[31m[Error de módulo de voz: {e}]\033[0m")

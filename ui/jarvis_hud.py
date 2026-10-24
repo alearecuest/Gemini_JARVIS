@@ -1,4 +1,5 @@
 import sys
+import os
 import random
 import psutil
 import datetime
@@ -7,27 +8,33 @@ from PyQt6.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QHBo
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QFont
 
-from jarvis_3d_widget import Jarvis3DHologram
+# Asegurar que la raíz del proyecto esté en el path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Importamos nuestro componente holográfico 3D modular
-from jarvis_3d_widget import Jarvis3DHologram
+from ui.jarvis_3d_widget import Jarvis3DHologram
+from core.state_bus import StateBus
 
 class JarvisHUD(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.estado_actual = "IDLE"
+        self.clima_cache = "Sincronizando..."
+        self.ultimo_clima_ts = 0
         self.initUI()
         
+        # Timer de telemetría (1s)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.actualizar_datos)
         self.timer.start(1000)
 
+        # Timer de sincronización de estado y espectro (80ms)
         self.timer_audio = QTimer(self)
-        self.timer_audio.timeout.connect(self.animar_espectro)
+        self.timer_audio.timeout.connect(self.sincronizar_estado_y_espectro)
         self.timer_audio.start(80)
 
     def initUI(self):
-        self.setWindowTitle("J.A.R.V.I.S.")
-        self.setFixedSize(380, 580)  # Ampliamos ligeramente para alojar el holograma 3D
+        self.setWindowTitle("J.A.R.V.I.S. v2")
+        self.setFixedSize(390, 600)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -48,14 +55,14 @@ class JarvisHUD(QMainWindow):
         marco_layout = QVBoxLayout(self.marco)
         marco_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- NÚCLEO HOLOGRÁFICO 3D ---
+        # Núcleo Holográfico 3D
         self.holograma_3d = Jarvis3DHologram(self.marco)
         marco_layout.addWidget(self.holograma_3d, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Estado del Asistente
+        # Estado en Tiempo Real
         self.lbl_estado = QLabel("ESTADO: EN ESPERA", self.marco)
-        self.lbl_estado.setFont(QFont("Consolas", 11, QFont.Weight.Bold))
-        self.lbl_estado.setStyleSheet("color: #00ff66; border: none; padding: 6px;")
+        self.lbl_estado.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+        self.lbl_estado.setStyleSheet("color: #00ffff; border: none; padding: 4px;")
         self.lbl_estado.setAlignment(Qt.AlignmentFlag.AlignCenter)
         marco_layout.addWidget(self.lbl_estado)
 
@@ -67,39 +74,40 @@ class JarvisHUD(QMainWindow):
 
         # Telemetría
         self.lbl_telemetria = QLabel("Cargando telemetría...", self.marco)
-        self.lbl_telemetria.setFont(QFont("Consolas", 10))
+        self.lbl_telemetria.setFont(QFont("Consolas", 9))
         self.lbl_telemetria.setStyleSheet("color: #a0ffff; border: none; padding: 6px;")
         marco_layout.addWidget(self.lbl_telemetria)
 
-        # Espectro de audio
+        # Espectro de audio reactivo
         self.contenedor_espectro = QHBoxLayout()
         self.contenedor_espectro.setSpacing(4)
         self.contenedor_espectro.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.barras_audio = []
-        for _ in range(12):
+        for _ in range(14):
             barra = QFrame()
-            barra.setFixedSize(14, 20)
+            barra.setFixedSize(12, 8)
             barra.setStyleSheet("background-color: #00ffff; border-radius: 3px;")
             self.contenedor_espectro.addWidget(barra)
             self.barras_audio.append(barra)
             
         marco_layout.addLayout(self.contenedor_espectro)
 
-        # Agenda
-        lbl_agenda_tit = QLabel("--- AGENDA PRÓXIMA ---", self.marco)
-        lbl_agenda_tit.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
-        lbl_agenda_tit.setStyleSheet("color: #00ffff; border: none; margin-top: 5px;")
-        marco_layout.addWidget(lbl_agenda_tit)
+        # Consola de Respuesta en Vivo
+        lbl_resp_tit = QLabel("--- ÚLTIMA TRANSMISIÓN ---", self.marco)
+        lbl_resp_tit.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
+        lbl_resp_tit.setStyleSheet("color: #00ffff; border: none; margin-top: 6px;")
+        lbl_resp_tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        marco_layout.addWidget(lbl_resp_tit)
 
-        self.lbl_agenda = QLabel("Sincronizando Google Calendar...", self.marco)
-        self.lbl_agenda.setFont(QFont("Consolas", 8))
-        self.lbl_agenda.setStyleSheet("color: #e0e0e0; border: none; padding: 3px;")
-        self.lbl_agenda.setWordWrap(True)
-        marco_layout.addWidget(self.lbl_agenda)
+        self.lbl_respuesta = QLabel("Esperando órdenes, Alejandro...", self.marco)
+        self.lbl_respuesta.setFont(QFont("Consolas", 8))
+        self.lbl_respuesta.setStyleSheet("color: #e0e0e0; border: none; padding: 6px;")
+        self.lbl_respuesta.setWordWrap(True)
+        self.lbl_respuesta.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        marco_layout.addWidget(self.lbl_respuesta)
 
         layout.addWidget(self.marco)
-        
         self.oldPos = None
 
     def mousePressEvent(self, event):
@@ -120,20 +128,46 @@ class JarvisHUD(QMainWindow):
         cpu = psutil.cpu_percent(interval=None)
         ram = psutil.virtual_memory().percent
         
-        try:
-            clima = requests.get("https://wttr.in/Montevideo?format=%C,+%t&lang=es", timeout=1).text.strip()
-        except Exception:
-            clima = "Sin conexión"
+        ahora_ts = datetime.datetime.now().timestamp()
+        if ahora_ts - self.ultimo_clima_ts > 300: # Actualizar clima cada 5 min
+            try:
+                self.clima_cache = requests.get("https://wttr.in/Montevideo?format=%C,+%t&lang=es", timeout=1.5).text.strip()
+                self.ultimo_clima_ts = ahora_ts
+            except Exception:
+                pass
 
         ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        texto_telemetria = f"📅 {ahora}\n🌤️ Clima: {clima}\n💻 CPU: {cpu}%  |  RAM: {ram}%"
+        texto_telemetria = f"📅 {ahora}\n🌤️ Montevideo: {self.clima_cache}\n💻 CPU: {cpu}%  |  RAM: {ram}%"
         self.lbl_telemetria.setText(texto_telemetria)
 
-    def animar_espectro(self):
+    def sincronizar_estado_y_espectro(self):
+        datos = StateBus.leer()
+        estado = datos.get("estado", "IDLE")
+        detalle = datos.get("detalle", "")
+        ultima_resp = datos.get("ultima_respuesta", "")
+
+        self.holograma_3d.configurar_estado(estado)
+        self.lbl_estado.setText(f"[{estado}] {detalle}")
+
+        if ultima_resp:
+            texto_corto = ultima_resp if len(ultima_resp) <= 160 else ultima_resp[:157] + "..."
+            self.lbl_respuesta.setText(f'"{texto_corto}"')
+
+        # El ecualizador solo salta fuerte cuando JARVIS habla o procesa
         colores = ["#00ffff", "#0088ff", "#ff00ff", "#00ff66"]
         for barra in self.barras_audio:
-            altura = random.randint(6, 30)
-            color = random.choice(colores)
+            if estado == "SPEAKING":
+                altura = random.randint(8, 34)
+                color = random.choice(colores)
+            elif estado == "THINKING":
+                altura = random.randint(6, 18)
+                color = "#ff00ff"
+            elif estado == "LISTENING":
+                altura = random.randint(5, 14)
+                color = "#00ff66"
+            else:
+                altura = 4
+                color = "#005577"
             barra.setFixedHeight(altura)
             barra.setStyleSheet(f"background-color: {color}; border-radius: 3px;")
 
