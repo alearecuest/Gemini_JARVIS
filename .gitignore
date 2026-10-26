@@ -6,3 +6,10 @@ __pycache__/
 credentials.json
 token.json
 agenda_jarvis.json
+
+memory/*.db
+memory/runtime_state.json
+credentials.json
+token.json
+venv/
+__pycache__/

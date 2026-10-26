@@ -137,7 +137,17 @@ class JarvisHUD(QMainWindow):
                 pass
 
         ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        texto_telemetria = f"📅 {ahora}\n🌤️ Montevideo: {self.clima_cache}\n💻 CPU: {cpu}%  |  RAM: {ram}%"
+        datos_bus = StateBus.leer()
+        tel = datos_bus.get("telemetria", {})
+        mod = tel.get("modelo", "Listo")
+        lat = tel.get("latencia_ms", 0)
+        tok = tel.get("tokens", 0)
+        texto_telemetria = (
+            f"📅 {ahora}\n"
+            f"🌤️ Montevideo: {self.clima_cache}\n"
+            f"💻 CPU: {cpu}%  |  RAM: {ram}%\n"
+            f"🧠 {mod} ({lat}ms | {tok} tok)"
+        )
         self.lbl_telemetria.setText(texto_telemetria)
 
     def sincronizar_estado_y_espectro(self):

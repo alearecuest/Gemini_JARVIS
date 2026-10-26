@@ -21,10 +21,9 @@ class VoiceEngine:
         self.voz = voz
         self.wake_word = wake_word.lower()
         self.audio_nativo = False
-        self.es_wsl = "microsoft" in os.uname().release.lower() if hasattr(os, "uname") else False
+        self.es_wsl = os.path.exists("/mnt/c/Windows")
         self.mic_disponible = False
 
-        # Intentar inicializar audio nativo silenciando advertencias ALSA en Linux
         try:
             devnull = os.open(os.devnull, os.O_WRONLY)
             old_stderr = os.dup(2)
@@ -39,7 +38,7 @@ class VoiceEngine:
         except Exception:
             self.audio_nativo = False
             if self.es_wsl:
-                print(" > [VoiceEngine]: Entorno WSL detectado. Activando puente de audio hacia Windows.")
+                print(" > [VoiceEngine]: Entorno WSL detectado. Puente SoundPlayer (WAV Síncrono) activo.")
 
         if sr is not None:
             try:
@@ -55,31 +54,40 @@ class VoiceEngine:
         await comunicador.save(archivo_salida)
 
     def _reproducir_en_wsl(self, texto: str):
-        """Genera el MP3 y lo reproduce a través del subsistema de audio de Windows."""
-        ruta_wsl = "/mnt/c/Users/Public/jarvis_tts_temp.mp3"
-        ruta_win = r"C:\Users\Public\jarvis_tts_temp.mp3"
-        
-        asyncio.run(self._generar_audio(texto, ruta_wsl))
-        
-        ps_script = (
-            f"Add-Type -AssemblyName presentationCore; "
-            f"$player = New-Object system.windows.media.mediaplayer; "
-            f"$player.open('{ruta_win}'); "
-            f"$player.Play(); "
-            f"Start-Sleep -Milliseconds 350; "
-            f"while ($player.NaturalDuration.HasTimeSpan -and $player.Position -lt $player.NaturalDuration.TimeSpan) {{ Start-Sleep -Milliseconds 100 }}; "
-            f"$player.Close()"
+        """Genera el MP3, lo pasa a WAV PCM y lo reproduce con SoundPlayer.PlaySync() en Windows."""
+        ruta_mp3_wsl = "/mnt/c/Users/Public/jarvis_tts.mp3"
+        ruta_wav_wsl = "/mnt/c/Users/Public/jarvis_tts.wav"
+        ruta_wav_win = r"C:\Users\Public\jarvis_tts.wav"
+
+        # 1. Generar MP3 desde Edge-TTS
+        asyncio.run(self._generar_audio(texto, ruta_mp3_wsl))
+
+        # 2. Convertir a WAV estándar con ffmpeg
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", ruta_mp3_wsl, "-acodec", "pcm_s16le", "-ar", "24000", ruta_wav_wsl],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True
         )
-        subprocess.run(["powershell.exe", "-NoProfile", "-Command", ps_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        if os.path.exists(ruta_wsl):
-            try:
-                os.remove(ruta_wsl)
-            except Exception:
-                pass
+
+        # 3. Reproducir de forma síncrona nativa en Windows (1 sola línea infalible)
+        ps_cmd = f"(New-Object Media.SoundPlayer '{ruta_wav_win}').PlaySync()"
+        res = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", ps_cmd],
+            capture_output=True,
+            text=True
+        )
+        if res.returncode != 0 and res.stderr:
+            print(f"   [!] Aviso PowerShell Audio: {res.stderr.strip()}")
+
+        for f in (ruta_mp3_wsl, ruta_wav_wsl):
+            if os.path.exists(f):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
 
     def hablar(self, texto: str):
-        """Sintetiza voz neuronal y actualiza el StateBus a SPEAKING mientras reproduce."""
         if not texto:
             return
         print(f"\n\033[1;36m[J.A.R.V.I.S.]: {texto}\033[0m\n")
