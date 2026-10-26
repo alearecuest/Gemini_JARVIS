@@ -1,4 +1,4 @@
-# 🤖 J.A.R.V.I.S. v2.1 — OpenJarvis Modular AI Framework
+# J.A.R.V.I.S. v2.1 — OpenJarvis Modular AI Framework
 
 ![Python](https://img.shields.io/badge/Python-3.12+-blue?logo=python&logoColor=white)
 ![Gemini](https://img.shields.io/badge/Google%20Gemini-3.5%20%7C%203.6%20Flash-orange?logo=google&logoColor=white)
@@ -9,7 +9,7 @@ Framework de agente de inteligencia artificial personal **local-first e híbrido
 
 ---
 
-## 🏗️ Arquitectura del Sistema (`v2.1`)
+## Arquitectura del Sistema (`v2.1`)
 
 ```text
 Gemini_JARVIS/
@@ -38,7 +38,7 @@ Gemini_JARVIS/
 
 ---
 
-## ⚡ Características Principales
+## Características Principales
 
 - **Autodescubrimiento de Plugins (`@jarvis_tool`)**: Cualquier función decorada dentro de `plugins/` es detectada, tipada e inyectada automáticamente en las capacidades de Function Calling del agente al iniciar.
 - **Memoria Híbrida (SQLite + RAG Vectorial)**: Almacena notas permanentes y permite indexar documentos o código fuente local, realizando búsquedas por significado semántico mediante Cosine Similarity.
@@ -48,7 +48,7 @@ Gemini_JARVIS/
 
 ---
 
-## 🛠️ Ecosistema de Plugins Activos (14 Tools)
+## Ecosistema de Plugins Activos (14 Tools)
 
 | Módulo | Herramienta Registrada | Descripción |
 |--------|------------------------|-------------|
@@ -69,7 +69,7 @@ Gemini_JARVIS/
 
 ---
 
-## 💻 Uso del CLI Oficial (`jarvis_cli.py`)
+## Uso del CLI Oficial (`jarvis_cli.py`)
 
 El proyecto incluye una interfaz de línea de comandos inspirada en OpenJarvis:
 
@@ -117,7 +117,7 @@ python3 lanzar_jarvis.py
 
 ---
 
-## ⚙️ Instalación Rápida
+## Instalación Rápida
 
 ```bash
 # 1. Clonar el repositorio
